@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Exam → Subjects → Topics → Chunks — Progress Tracker</title>
+<style>
+:root{
+  --bg:#0f1220;--card:#181c2f;--ink:#eef1ff;--muted:#9aa3c7;--line:#2a3052;
+  --ok:#7bd88f;--warn:#ffd166;--bad:#ff7575;--accent:#6ca8ff
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;-webkit-tap-highlight-color:transparent}
+header,footer{padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+header h1{margin:0;font-size:18px;font-weight:700}
+.wrap{max-width:1100px;margin:0 auto;padding:16px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px}
+button,.btn{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;cursor:pointer}
+button:hover{box-shadow:0 0 0 1px var(--accent)}
+input,textarea,select{background:transparent;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:9px 10px;font:inherit}
+input[type="number"]{width:88px}
+select{min-width:190px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:14px 0}
+.card h2{margin:0 0 8px 0;font-size:16px;display:flex;align-items:center;gap:8px}
+.small{font-size:12px;color:var(--muted)}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.split{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.bar{position:relative;height:14px;background:#10152b;border:1px solid var(--line);border-radius:999px;overflow:hidden;min-width:200px}
+.fill{position:absolute;inset:0 0 0 0;width:0%;background:linear-gradient(90deg,var(--accent),#82b6ff)}
+.topic{border:1px dashed var(--line);border-radius:12px;padding:10px;margin-top:10px}
+.topic h3{margin:0 0 8px 0;font-size:14px;display:flex;align-items:center;gap:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);border-radius:10px;padding:6px 9px;cursor:pointer;user-select:none}
+.chip.done{background:rgba(123,216,143,.15);border-color:var(--ok)}
+.badge{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px;color:var(--muted)}
+hr.sep{border:none;border-top:1px solid var(--line);margin:10px 0}
+details{border:1px solid var(--line);border-radius:12px;padding:8px;background:rgba(255,255,255,0.02)}
+details summary{cursor:pointer;font-weight:600}
+a.link{color:var(--accent);text-decoration:none}
+input.inline{border:none;border-bottom:1px dashed var(--line);border-radius:0;padding:2px 6px}
+.warning{color:var(--warn)}
+.ok{color:var(--ok)}
+.danger{color:var(--bad)}
+.toggle{width:34px;height:34px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-weight:700}
+.pctLabel{font-weight:700}
+
+/* Global/Exam header */
+.hero{display:flex;flex-direction:column;gap:10px}
+.heroTop{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.hero .bar{min-width:260px;height:16px}
+.hero .pct{font-weight:800}
+.examRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+/* Tabs */
+.tabs{display:flex;gap:8px;margin:6px 0 0 0;border-bottom:1px solid var(--line)}
+.tabs button{background:transparent;border:1px solid var(--line);border-bottom:none;padding:8px 12px;border-top-left-radius:10px;border-top-right-radius:10px}
+.tabs button.active{background:var(--card);box-shadow:0 -2px 0 var(--accent) inset;font-weight:700}
+
+/* PDF viewer */
+.pdfWrap{margin-top:10px}
+.pdfWrap iframe{width:100%;height:70vh;border:1px solid var(--line);border-radius:12px;background:#fff}
+.pastList{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.pastItem{display:flex;flex-direction:column;gap:6px;border:1px dashed var(--line);border-radius:10px;padding:8px}
+.pastHead{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap}
+
+@media (max-width:520px){
+  .bar{min-width:160px}
+  .hero .bar{min-width:180px}
+  .pdfWrap iframe{height:65vh}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>📚 Exam → Subjects → Topics → Chunks</h1>
+  <div class="toolbar">
+    <button id="exportBtn">⬇️ Export</button>
+    <label class="btn" for="importInp">⬆️ Import</label>
+    <input id="importInp" type="file" accept="application/json" style="display:none">
+    <button id="demoBtn" class="small">Load Demo</button>
+    <span id="savedBadge" class="badge">Saved</span>
+  </div>
+</header>
+
+<!-- Current exam header & progress + tabs -->
+<div class="wrap" id="examMount"></div>
+
+<!-- Exams overview -->
+<div class="wrap" id="overviewMount"></div>
+
+<!-- Main area (subjects / syllabus / notifications / cutoff) -->
+<div class="wrap" id="mount"></div>
+
+<footer style="border-top:1px solid var(--line)">
+  <div class="wrap small">
+    Tips: Tap a chunk to toggle ✓. Change a topic’s chunk count via “Edit”.
+    Percent = completed chunks ÷ total chunks × 100. All data stays in your browser.
+  </div>
+</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+const mount = $("#mount");
+const examMount = $("#examMount");
+const overviewMount = $("#overviewMount");
+const savedBadge = $("#savedBadge");
+const LSK = "subject_topic_chunk_progress_v1"; // same key for continuity
+
+let state = load() ?? {};
+let saveTimer;
+
+/* ---------- persistence ---------- */
+function uid(){ return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+function load(){ try{ return JSON.parse(localStorage.getItem(LSK)); }catch(e){ return null; } }
+function save(){ localStorage.setItem(LSK, JSON.stringify(state)); savedPulse(); }
+function savedPulse(){
+  savedBadge.textContent = "Saved"; savedBadge.style.opacity = 1;
+  clearTimeout(saveTimer); saveTimer = setTimeout(()=>{ savedBadge.style.opacity = .4; }, 1200);
+}
+function dirty(fn){ if(fn) fn(); save(); render(); }
+
+/* ---------- migration & normalization ---------- */
+function normalize(){
+  // New schema with exams[]
+  if(state.exams && Array.isArray(state.exams)){
+    state.exams.forEach(ex=>{
+      if(typeof ex.name!=="string") ex.name = "Untitled Exam";
+      if(!Array.isArray(ex.subjects)) ex.subjects = [];
+      if(typeof ex.syllabusUrl!=="string") ex.syllabusUrl = "";
+      if(!ex.notifications) ex.notifications = { currentUrl:"", pastUrls:[] };
+      if(typeof ex.notifications.currentUrl!=="string") ex.notifications.currentUrl = "";
+      if(!Array.isArray(ex.notifications.pastUrls)) ex.notifications.pastUrls = [];
+      if(!ex.cutoff) ex.cutoff = { currentUrl:"", pastUrls:[] };                      // NEW
+      if(typeof ex.cutoff.currentUrl!=="string") ex.cutoff.currentUrl = "";           // NEW
+      if(!Array.isArray(ex.cutoff.pastUrls)) ex.cutoff.pastUrls = [];                 // NEW
+      ex.subjects.forEach(s=>{ if(typeof s.collapsed!=="boolean") s.collapsed=false; });
+    });
+    if(!state.currentExamId){ state.currentExamId = state.exams[0]?.id || null; }
+    if(!state.ui) state.ui = { tab:"subjects" };
+    if(!state.ui.tab) state.ui.tab = "subjects";
+    return;
+  }
+  // Older single-exam schema
+  if(state.subjects){
+    const examId = uid();
+    const name = state.exam?.name || "Untitled Exam";
+    state = {
+      exams: [{ id: examId, name, syllabusUrl:"", notifications:{currentUrl:"", pastUrls:[]}, cutoff:{currentUrl:"", pastUrls:[]}, subjects: state.subjects }],
+      currentExamId: examId, ui: { tab:"subjects" }
+    };
+    return;
+  }
+  // Empty
+  const id = uid();
+  state = { exams:[{ id, name:"Untitled Exam", syllabusUrl:"", notifications:{currentUrl:"", pastUrls:[]}, cutoff:{currentUrl:"", pastUrls:[]}, subjects:[] }],
+            currentExamId:id, ui:{tab:"subjects"} };
+}
+function currentExam(){ return state.exams.find(e=>e.id===state.currentExamId) || state.exams[0]; }
+
+/* ---------- stats ---------- */
+function topicStats(t){ const done=t.completed.filter(Boolean).length, pct=Math.round((done/t.chunks)*100); return {done,pct,allDone:done===t.chunks}; }
+function subjectStats(s){
+  let totalChunks=0,totalDone=0,topicAll=0;
+  for(const t of s.topics){ const st=topicStats(t); totalChunks+=t.chunks; totalDone+=st.done; if(st.allDone) topicAll++; }
+  const pct = totalChunks ? Math.round((totalDone/totalChunks)*100) : 0;
+  return { totalChunks,totalDone,pct,topicAll,allDone:s.topics.length>0&&topicAll===s.topics.length };
+}
+function examStats(exam){
+  let totalChunks=0,totalDone=0,subjectsAll=0;
+  for(const s of exam.subjects){ const st=subjectStats(s); totalChunks+=st.totalChunks; totalDone+=st.totalDone; if(st.allDone) subjectsAll++; }
+  const pct = totalChunks ? Math.round((totalDone/totalChunks)*100) : 0;
+  return { totalChunks,totalDone,pct,subjectsAll,subjectCount:exam.subjects.length };
+}
+
+/* ---------- exam CRUD ---------- */
+function addExam(name){ const id=uid(); state.exams.push({ id, name:name||"New Exam", syllabusUrl:"", notifications:{currentUrl:"", pastUrls:[]}, cutoff:{currentUrl:"", pastUrls:[]}, subjects:[] }); state.currentExamId=id; }
+function renameExam(id,newName){ const ex=state.exams.find(e=>e.id===id); if(!ex) return; ex.name=newName||"Untitled Exam"; }
+function removeExam(id){
+  const i=state.exams.findIndex(e=>e.id===id); if(i<0) return;
+  state.exams.splice(i,1);
+  if(state.exams.length===0){ const idNew=uid(); state.exams.push({ id:idNew,name:"Untitled Exam",syllabusUrl:"",notifications:{currentUrl:"",pastUrls:[]},cutoff:{currentUrl:"",pastUrls:[]},subjects:[] }); state.currentExamId=idNew; }
+  else if(state.currentExamId===id){ state.currentExamId=state.exams[0].id; }
+}
+function setCurrentExam(id){ state.currentExamId=id; }
+
+/* ---------- subject/topic CRUD (per current exam) ---------- */
+function addSubject(name){ const ex=currentExam(); if(!ex) return; ex.subjects.push({ id:uid(), name:name||"Untitled", topics:[], collapsed:false }); }
+function removeSubject(id){ const ex=currentExam(); if(!ex) return; const i=ex.subjects.findIndex(s=>s.id===id); if(i>=0) ex.subjects.splice(i,1); }
+function renameSubject(id,name){ const ex=currentExam(); if(!ex) return; const s=ex.subjects.find(s=>s.id===id); if(!s) return; s.name=name||"Untitled"; }
+function toggleSubject(id){ const ex=currentExam(); if(!ex) return; const s=ex.subjects.find(s=>s.id===id); if(!s) return; s.collapsed=!s.collapsed; }
+function addTopic(subjectId,name,chunks){ const ex=currentExam(); if(!ex) return; const s=ex.subjects.find(s=>s.id===subjectId); if(!s) return; chunks=Math.max(1,Math.min(500,Number(chunks||1))); s.topics.push({ id:uid(), name:name||"Untitled topic", chunks, completed:Array(chunks).fill(false) }); }
+function removeTopic(subjectId,topicId){ const ex=currentExam(); if(!ex) return; const s=ex.subjects.find(s=>s.id===subjectId); if(!s) return; const i=s.topics.findIndex(t=>t.id===topicId); if(i>=0) s.topics.splice(i,1); }
+function editTopic(subjectId,topicId,newName,newChunks){
+  const ex=currentExam(); if(!ex) return; const s=ex.subjects.find(s=>s.id===subjectId); if(!s) return; const t=s.topics.find(t=>t.id===topicId); if(!t) return;
+  t.name=newName||t.name; const n=Math.max(1,Math.min(500,Number(newChunks||t.chunks)));
+  if(n!==t.chunks){ if(n>t.chunks){ t.completed.push(...Array(n-t.chunks).fill(false)); } else { t.completed=t.completed.slice(0,n); } t.chunks=n; }
+}
+function toggleChunk(subjectId,topicId,idx){ const ex=currentExam(); if(!ex) return; const s=ex.subjects.find(s=>s.id===subjectId); if(!s) return; const t=s.topics.find(t=>t.id===topicId); if(!t) return; t.completed[idx]=!t.completed[idx]; }
+function setAllChunks(subjectId,topicId,val){ const ex=currentExam(); if(!ex) return; const s=ex.subjects.find(s=>s.id===subjectId); if(!s) return; const t=s.topics.find(t=>t.id===topicId); if(!t) return; t.completed=Array(t.chunks).fill(!!val); }
+
+/* ---------- Drive helpers ---------- */
+function extractDriveId(url){
+  try{
+    const u=new URL(url);
+    if(u.hostname.includes("drive.google.com")){
+      const m=u.pathname.match(/\/file\/d\/([^/]+)/); if(m) return m[1];
+      if(u.searchParams.get("id")) return u.searchParams.get("id");
+      if(u.searchParams.get("export")==="download" && u.searchParams.get("id")) return u.searchParams.get("id");
+    }
+  }catch(e){}
+  return null;
+}
+function makePdfEmbed(url){
+  const id=extractDriveId(url);
+  if(id) return `https://drive.google.com/file/d/${id}/preview`;
+  return `https://drive.google.com/viewerng/viewer?embedded=true&url=${encodeURIComponent(url)}`;
+}
+
+/* ---------- syllabus / notifications / cutoff helpers ---------- */
+function setSyllabusUrl(url){ const ex=currentExam(); if(!ex) return; ex.syllabusUrl=url||""; }
+function setCurrentNotif(url){ const ex=currentExam(); if(!ex) return; if(!ex.notifications) ex.notifications={currentUrl:"", pastUrls:[]}; ex.notifications.currentUrl=url||""; }
+function addPastNotif(url){ const ex=currentExam(); if(!ex) return; if(!ex.notifications) ex.notifications={currentUrl:"", pastUrls:[]}; if(url) ex.notifications.pastUrls.unshift(url); }
+function removePastNotif(idx){ const ex=currentExam(); if(!ex) return; ex.notifications.pastUrls.splice(idx,1); }
+function archiveCurrentToPast(){ const ex=currentExam(); if(!ex) return; const cur=ex.notifications.currentUrl?.trim(); if(cur){ ex.notifications.pastUrls.unshift(cur); ex.notifications.currentUrl=""; } }
+function makePastCurrent(idx){
+  const ex=currentExam(); if(!ex) return;
+  const url = ex.notifications.pastUrls[idx]; if(!url) return;
+  const cur = ex.notifications.currentUrl?.trim();
+  if(cur) ex.notifications.pastUrls.unshift(cur);
+  // remove the selected from its (possibly shifted) position
+  const j = ex.notifications.pastUrls.indexOf(url);
+  if(j>-1) ex.notifications.pastUrls.splice(j,1);
+  ex.notifications.currentUrl = url;
+}
+
+/* --- NEW: cutoff helpers (final selection cutoff PDFs) --- */
+function setCurrentCutoff(url){ const ex=currentExam(); if(!ex) return; if(!ex.cutoff) ex.cutoff={currentUrl:"",pastUrls:[]}; ex.cutoff.currentUrl=url||""; }
+function addPastCutoff(url){ const ex=currentExam(); if(!ex) return; if(!ex.cutoff) ex.cutoff={currentUrl:"",pastUrls:[]}; if(url) ex.cutoff.pastUrls.unshift(url); }
+function removePastCutoff(idx){ const ex=currentExam(); if(!ex) return; ex.cutoff.pastUrls.splice(idx,1); }
+function archiveCurrentCutoffToPast(){ const ex=currentExam(); if(!ex) return; const cur=ex.cutoff.currentUrl?.trim(); if(cur){ ex.cutoff.pastUrls.unshift(cur); ex.cutoff.currentUrl=""; } }
+function makePastCutoffCurrent(idx){
+  const ex=currentExam(); if(!ex) return; const arr=ex.cutoff.pastUrls; const url=arr[idx]; if(!url) return;
+  const cur=ex.cutoff.currentUrl?.trim(); if(cur) arr.unshift(cur);
+  // remove chosen url from past (find again to avoid index shift issues)
+  const j = arr.indexOf(url); if(j>-1) arr.splice(j,1);
+  ex.cutoff.currentUrl = url;
+}
+
+/* ---------- rendering ---------- */
+function renderExamHeader(){
+  const ex=currentExam(), st=examStats(ex);
+  const sel = `<select id="examSel" title="Switch exam">${state.exams.map(e=>`<option value="${e.id}" ${e.id===state.currentExamId?'selected':''}>${escapeHtml(e.name)}</option>`).join("")}</select>`;
+  examMount.innerHTML = `
+    <div class="card hero" aria-label="Exam header">
+      <div class="heroTop">
+        <div class="examRow">
+          <span class="small">📝 Exam:</span>
+          ${sel}
+          <input class="inline" id="examName" value="${escapeHtml(ex.name)}" placeholder="Rename current exam"/>
+          <button id="addExamBtn">➕ Add Exam</button>
+          <button id="delExamBtn" class="danger">🗑️ Delete Exam</button>
+        </div>
+        <div class="bar" title="Overall progress of current exam"><div class="fill" style="width:${st.pct}%"></div></div>
+        <span class="pct">${st.pct}% of 100%</span>
+        <span class="small">${st.totalDone}/${st.totalChunks||0} chunks • ${st.subjectsAll}/${st.subjectCount} subjects done</span>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button id="tabSubjects" class="${state.ui.tab==='subjects'?'active':''}" role="tab" aria-selected="${state.ui.tab==='subjects'}">Subjects</button>
+        <button id="tabSyllabus" class="${state.ui.tab==='syllabus'?'active':''}" role="tab" aria-selected="${state.ui.tab==='syllabus'}">Syllabus PDF</button>
+        <button id="tabNotifs"   class="${state.ui.tab==='notifications'?'active':''}" role="tab" aria-selected="${state.ui.tab==='notifications'}">Notifications PDF</button>
+        <button id="tabCutoff"   class="${state.ui.tab==='cutoff'?'active':''}" role="tab" aria-selected="${state.ui.tab==='cutoff'}">Final Cutoff PDF</button>
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <button id="addSubjectBtn">➕ Add Subject</button>
+        <button id="exportBtn2">⬇️ Export</button>
+        <label class="btn" for="importInp2">⬆️ Import</label>
+        <input id="importInp2" type="file" accept="application/json" style="display:none">
+      </div>
+    </div>
+  `;
+  // hooks
+  $("#examSel").onchange = (e)=> dirty(()=> setCurrentExam(e.target.value));
+  $("#examName").onchange = (e)=> dirty(()=> renameExam(ex.id, e.target.value.trim()||"Untitled Exam"));
+  $("#addExamBtn").onclick = ()=>{ const n=prompt("New exam name?","New Exam"); if(n===null) return; dirty(()=> addExam(n.trim()||"New Exam")); };
+  $("#delExamBtn").onclick = ()=>{ if(!confirm("Delete this exam and all its data?")) return; dirty(()=> removeExam(ex.id)); };
+  $("#addSubjectBtn").onclick = ()=>{ const name=prompt("Subject name?"); if(name===null) return; dirty(()=> addSubject((name.trim()||"Untitled"))); };
+  $("#tabSubjects").onclick = ()=> dirty(()=> state.ui.tab="subjects");
+  $("#tabSyllabus").onclick = ()=> dirty(()=> state.ui.tab="syllabus");
+  $("#tabNotifs").onclick   = ()=> dirty(()=> state.ui.tab="notifications");
+  $("#tabCutoff").onclick   = ()=> dirty(()=> state.ui.tab="cutoff");         // NEW
+  $("#exportBtn2").onclick = onExport;
+  $("#importInp2").onchange = onImport;
+}
+
+function renderOverview(){
+  if(state.exams.length<=1){ overviewMount.innerHTML=""; return; }
+  const rows = state.exams.map(e=>{ const st=examStats(e);
+    return `
+      <div class="row" style="gap:10px;justify-content:space-between;align-items:center;margin:6px 0">
+        <div class="row" style="gap:8px"><span class="small">${escapeHtml(e.name)}</span><span class="badge">${st.totalDone}/${st.totalChunks||0} chunks</span></div>
+        <div class="bar"><div class="fill" style="width:${st.pct}%"></div></div>
+        <span class="pctLabel">${st.pct}%</span>
+        <button onclick="dirty(()=> setCurrentExam('${e.id}'))">Open</button>
+      </div>`;
+  }).join("");
+  overviewMount.innerHTML = `<details class="card" open><summary>🗂 All Exams Overview</summary><div style="display:flex;flex-direction:column">${rows}</div></details>`;
+}
+
+function renderSubjects(){
+  const ex=currentExam(); mount.innerHTML="";
+  if(!ex.subjects.length){ const empty=document.createElement("div"); empty.className="card"; empty.innerHTML=`<h2>No subjects yet</h2><div class="small">Use “Add Subject” above to begin.</div>`; mount.appendChild(empty); return; }
+  for(const s of ex.subjects){
+    if(typeof s.collapsed!=="boolean") s.collapsed=false;
+    const stat=subjectStats(s);
+    const card=document.createElement("div"); card.className="card";
+    const subjectHeader=document.createElement("div"); subjectHeader.className="split";
+    subjectHeader.innerHTML=`
+      <h2>
+        <button class="toggle" title="${s.collapsed?'Expand':'Collapse'}" onclick="onToggleSubject('${s.id}')">${s.collapsed?'▸':'▾'}</button>
+        <input class="inline" value="${escapeHtml(s.name)}" data-subject-rename="${s.id}" aria-label="Subject name"/>
+        <span class="badge">${s.topics.length} topic${s.topics.length!==1?'s':''}</span>
+        ${stat.allDone?'<span class="badge ok">✓ All topics complete</span>':''}
+      </h2>
+      <div class="row">
+        <div class="bar"><div class="fill" style="width:${stat.pct}%"></div></div>
+        <span class="pctLabel">${stat.pct}% of 100%</span>
+        <span class="small">${stat.totalDone}/${stat.totalChunks} chunks • ${stat.topicAll}/${s.topics.length} topics</span>
+        <button onclick="onAddTopic('${s.id}')">➕ Add Topic</button>
+        <button onclick="onBulkAdd('${s.id}')" title="Bulk add topics">📥 Bulk</button>
+        <button class="danger" onclick="onDeleteSubject('${s.id}')">🗑️ Delete Subject</button>
+      </div>`;
+    card.appendChild(subjectHeader);
+    if(!s.collapsed){
+      for(const t of s.topics){
+        const ts=topicStats(t);
+        const topic=document.createElement("div"); topic.className="topic";
+        topic.innerHTML=`
+          <div class="split">
+            <h3>
+              <span>${ts.allDone?'✅':'🧩'}</span>
+              <input class="inline" value="${escapeHtml(t.name)}" data-topic-rename="${s.id}::${t.id}" aria-label="Topic name"/>
+              <span class="badge">${ts.done}/${t.chunks} chunks</span>
+              <span class="badge">${ts.pct}%</span>
+            </h3>
+            <div class="row">
+              <div class="bar" style="min-width:140px"><div class="fill" style="width:${ts.pct}%"></div></div>
+              <button onclick="onEditTopic('${s.id}','${t.id}')">✏️ Edit</button>
+              <button onclick="dirty(()=>setAllChunks('${s.id}','${t.id}',true))">✔️ All</button>
+              <button onclick="dirty(()=>setAllChunks('${s.id}','${t.id}',false))">↺ Reset</button>
+              <button class="danger" onclick="onDeleteTopic('${s.id}','${t.id}')">🗑️ Delete</button>
+            </div>
+          </div>
+          <div class="chips" id="chips-${t.id}"></div>`;
+        card.appendChild(topic);
+        const chipsWrap=topic.querySelector(`#chips-${t.id}`);
+        for(let i=0;i*t.chunks && i<t.chunks;i++){
+          const chip=document.createElement("div"); chip.className="chip"+(t.completed[i]?' done':''); chip.textContent=i+1;
+          chip.title=t.completed[i]?"Completed — tap to undo":"Not done — tap to complete";
+          chip.onclick=()=> dirty(()=> toggleChunk(s.id,t.id,i));
+          chipsWrap.appendChild(chip);
+        }
+      }
+      const bulk=document.createElement("details"); bulk.id=`bulk-${s.id}`; bulk.style.marginTop="10px";
+      bulk.innerHTML=`<summary>Bulk add topics to <strong>${escapeHtml(s.name)}</strong></summary>
+        <div class="row" style="margin-top:8px">
+          <textarea id="bulktext-${s.id}" rows="6" style="width:100%;max-width:720px" placeholder="One per line. Format:
+Topic name | chunks
+Topic two | 5
+Only name (defaults to 1 chunk)"></textarea>
+        </div>
+        <div class="row" style="margin-top:8px"><button onclick="onBulkApply('${s.id}')">Add Topics</button>
+          <span class="small">Tip: Large lists are fine. Chunk count is capped at 500.</span></div>`;
+      card.appendChild(document.createElement("hr")).className="sep";
+      card.appendChild(bulk);
+    }
+    mount.appendChild(card);
+  }
+  // inline rename hooks
+  requestAnimationFrame(()=>{
+    document.querySelectorAll("[data-subject-rename]").forEach(inp=>{
+      inp.onchange=(e)=> dirty(()=> renameSubject(inp.dataset.subjectRename, e.target.value.trim()||"Untitled"));
+    });
+    document.querySelectorAll("[data-topic-rename]").forEach(inp=>{
+      inp.onchange=(e)=>{ const [sid,tid]=inp.dataset.topicRename.split("::");
+        const ex=currentExam(); const s=ex.subjects.find(s=>s.id===sid); const t=s?.topics.find(t=>t.id===tid); if(!t) return;
+        dirty(()=>{ t.name=e.target.value.trim()||"Untitled topic"; });
+      };
+    });
+  });
+}
+
+function renderSyllabus(){
+  const ex=currentExam(); const url=ex.syllabusUrl||""; const embed=url?makePdfEmbed(url):"";
+  mount.innerHTML = `
+    <div class="card">
+      <h2>📄 Syllabus PDF</h2>
+      <div class="row">
+        <input id="syllabusInp" style="min-width:280px;flex:1" placeholder="Paste Google Drive share link (or any PDF URL)" value="${escapeHtml(url)}"/>
+        <button id="saveSyllabusBtn">Save</button>
+        ${url ? `<a class="btn" id="openSyllabus" target="_blank" rel="noopener">Open</a>
+                 <button class="danger" id="clearSyllabusBtn">Clear</button>` : ""}
+      </div>
+      ${url ? `<div class="pdfWrap"><iframe src="${embed}" allow="autoplay"></iframe></div>`
+            : `<div class="small" style="margin-top:8px">Tip: Set Drive file to “Anyone with the link – Viewer”.</div>`}
+    </div>`;
+  $("#saveSyllabusBtn").onclick = ()=> { const val=$("#syllabusInp").value.trim(); dirty(()=> setSyllabusUrl(val||"")); };
+  const open=$("#openSyllabus"); if(open) open.href=url;
+  const clear=$("#clearSyllabusBtn"); if(clear) clear.onclick=()=> dirty(()=> setSyllabusUrl(""));
+}
+
+function renderNotifications(){
+  const ex=currentExam();
+  const cur = ex.notifications.currentUrl || "";
+  const embed = cur ? makePdfEmbed(cur) : "";
+  mount.innerHTML = `
+    <div class="card">
+      <h2>📣 Notifications PDF</h2>
+      <details open>
+        <summary><strong>Current Notification</strong></summary>
+        <div class="row" style="margin-top:8px">
+          <input id="notifCurInp" style="min-width:280px;flex:1" placeholder="Paste Google Drive share link (or any PDF URL)" value="${escapeHtml(cur)}"/>
+          <button id="saveCurNotifBtn">Save</button>
+          ${cur ? `<a class="btn" id="openCurNotif" target="_blank" rel="noopener">Open</a>
+                   <button id="archiveCurBtn">Archive → Past</button>
+                   <button class="danger" id="clearCurBtn">Clear</button>` : ""}
+        </div>
+        ${cur ? `<div class="pdfWrap"><iframe src="${embed}" allow="autoplay"></iframe></div>`
+              : `<div class="small" style="margin-top:8px">Tip: Ensure link is viewable.</div>`}
+      </details>
+
+      <details style="margin-top:10px" open>
+        <summary><strong>Past Notifications</strong></summary>
+        <div class="row" style="margin-top:8px">
+          <input id="notifPastInp" style="min-width:280px;flex:1" placeholder="Paste a past notification PDF link"/>
+          <button id="addPastBtn">Add to Past</button>
+        </div>
+        <div class="pastList" id="pastList"></div>
+      </details>
+    </div>
+  `;
+  $("#saveCurNotifBtn").onclick = ()=> { const val=$("#notifCurInp").value.trim(); dirty(()=> setCurrentNotif(val||"")); };
+  const openCur=$("#openCurNotif"); if(openCur) openCur.href=cur;
+  const clearCur=$("#clearCurBtn"); if(clearCur) clearCur.onclick=()=> dirty(()=> setCurrentNotif(""));
+  const archCur=$("#archiveCurBtn"); if(archCur) archCur.onclick=()=> dirty(()=> archiveCurrentToPast());
+  $("#addPastBtn").onclick = ()=> { const v=$("#notifPastInp").value.trim(); if(!v) return; dirty(()=> addPastNotif(v)); };
+  const list = $("#pastList");
+  if(ex.notifications.pastUrls.length===0){
+    list.innerHTML = `<div class="small">No past notifications yet.</div>`;
+  }else{
+    list.innerHTML = ex.notifications.pastUrls.map((url,idx)=>{
+      const emb = makePdfEmbed(url);
+      return `
+        <div class="pastItem">
+          <div class="pastHead">
+            <div class="row" style="gap:8px">
+              <span class="small">#${idx+1}</span>
+              <a class="link" href="${url}" target="_blank" rel="noopener">${escapeHtml(url)}</a>
+            </div>
+            <div class="row">
+              <button onclick="dirty(()=> makePastCurrent(${idx}))">Make Current</button>
+              <a class="btn" href="${url}" target="_blank" rel="noopener">Open</a>
+              <button class="danger" onclick="dirty(()=> removePastNotif(${idx}))">Delete</button>
+            </div>
+          </div>
+          <details>
+            <summary>Preview</summary>
+            <div class="pdfWrap" style="margin-top:8px"><iframe src="${emb}" allow="autoplay"></iframe></div>
+          </details>
+        </div>
+      `;
+    }).join("");
+  }
+}
+
+/* --- NEW: Final Cutoff PDF tab --- */
+function renderCutoff(){
+  const ex=currentExam();
+  const cur = ex.cutoff.currentUrl || "";
+  const embed = cur ? makePdfEmbed(cur) : "";
+  mount.innerHTML = `
+    <div class="card">
+      <h2>🧾 Final Selection Cutoff PDF</h2>
+
+      <!-- Current Cutoff -->
+      <details open>
+        <summary><strong>Current Final Cutoff</strong></summary>
+        <div class="row" style="margin-top:8px">
+          <input id="cutCurInp" style="min-width:280px;flex:1" placeholder="Paste Google Drive share link (or any PDF URL)" value="${escapeHtml(cur)}"/>
+          <button id="saveCurCutBtn">Save</button>
+          ${cur ? `<a class="btn" id="openCurCut" target="_blank" rel="noopener">Open</a>
+                   <button id="archiveCurCutBtn">Archive → Past</button>
+                   <button class="danger" id="clearCurCutBtn">Clear</button>` : ""}
+        </div>
+        ${cur ? `<div class="pdfWrap"><iframe src="${embed}" allow="autoplay"></iframe></div>`
+              : `<div class="small" style="margin-top:8px">Tip: Set Drive link visibility to “Anyone with the link – Viewer”.</div>`}
+      </details>
+
+      <!-- Past Cutoffs -->
+      <details style="margin-top:10px" open>
+        <summary><strong>Past Final Cutoffs</strong></summary>
+        <div class="row" style="margin-top:8px">
+          <input id="cutPastInp" style="min-width:280px;flex:1" placeholder="Paste a past cutoff PDF link"/>
+          <button id="addPastCutBtn">Add to Past</button>
+        </div>
+        <div class="pastList" id="cutPastList"></div>
+      </details>
+    </div>
+  `;
+
+  // Hooks: current cutoff
+  $("#saveCurCutBtn").onclick = ()=> { const val=$("#cutCurInp").value.trim(); dirty(()=> setCurrentCutoff(val||"")); };
+  const openCur=$("#openCurCut"); if(openCur) openCur.href=cur;
+  const clearCur=$("#clearCurCutBtn"); if(clearCur) clearCur.onclick=()=> dirty(()=> setCurrentCutoff(""));
+  const archCur=$("#archiveCurCutBtn"); if(archCur) archCur.onclick=()=> dirty(()=> archiveCurrentCutoffToPast());
+
+  // Add past cutoff
+  $("#addPastCutBtn").onclick = ()=> { const v=$("#cutPastInp").value.trim(); if(!v) return; dirty(()=> addPastCutoff(v)); };
+
+  // Render past list
+  const list = $("#cutPastList");
+  if(ex.cutoff.pastUrls.length===0){
+    list.innerHTML = `<div class="small">No past cutoffs yet.</div>`;
+  }else{
+    list.innerHTML = ex.cutoff.pastUrls.map((url,idx)=>{
+      const emb = makePdfEmbed(url);
+      return `
+        <div class="pastItem">
+          <div class="pastHead">
+            <div class="row" style="gap:8px">
+              <span class="small">#${idx+1}</span>
+              <a class="link" href="${url}" target="_blank" rel="noopener">${escapeHtml(url)}</a>
+            </div>
+            <div class="row">
+              <button onclick="dirty(()=> makePastCutoffCurrent(${idx}))">Make Current</button>
+              <a class="btn" href="${url}" target="_blank" rel="noopener">Open</a>
+              <button class="danger" onclick="dirty(()=> removePastCutoff(${idx}))">Delete</button>
+            </div>
+          </div>
+          <details>
+            <summary>Preview</summary>
+            <div class="pdfWrap" style="margin-top:8px"><iframe src="${emb}" allow="autoplay"></iframe></div>
+          </details>
+        </div>
+      `;
+    }).join("");
+  }
+}
+
+function render(){
+  normalize();
+  renderExamHeader();
+  renderOverview();
+  if(state.ui.tab==="syllabus") renderSyllabus();
+  else if(state.ui.tab==="notifications") renderNotifications();
+  else if(state.ui.tab==="cutoff") renderCutoff();     // NEW
+  else renderSubjects();
+}
+
+/* ---------- inline UI helpers ---------- */
+function onAddTopic(subjectId){
+  const name=prompt("Topic name?"); if(name===null) return;
+  let chunks=prompt("How many chunks for this topic?","5"); if(chunks===null) return;
+  chunks=Math.floor(Number(chunks)); if(!Number.isFinite(chunks)||chunks<1) return alert("Enter a valid number (>=1)");
+  dirty(()=> addTopic(subjectId, name.trim()||"Untitled topic", chunks));
+}
+function onEditTopic(subjectId,topicId){
+  const ex=currentExam(); if(!ex) return;
+  const s=ex.subjects.find(s=>s.id===subjectId); const t=s?.topics.find(t=>t.id===topicId); if(!t) return;
+  const newName=prompt("Rename topic:", t.name); if(newName===null) return;
+  let newChunks=prompt("Change chunk count:", t.chunks); if(newChunks===null) return;
+  newChunks=Math.floor(Number(newChunks)); if(!Number.isFinite(newChunks)||newChunks<1) return alert("Enter a valid number (>=1)");
+  dirty(()=> editTopic(subjectId, topicId, newName.trim()||"Untitled topic", newChunks));
+}
+function onDeleteTopic(subjectId,topicId){ if(!confirm("Delete this topic? This cannot be undone.")) return; dirty(()=> removeTopic(subjectId,topicId)); }
+function onDeleteSubject(subjectId){ if(!confirm("Delete this subject and all its topics? This cannot be undone.")) return; dirty(()=> removeSubject(subjectId)); }
+function onBulkAdd(subjectId){
+  const det=document.getElementById(`bulk-${subjectId}`); if(det) det.open=true;
+  const ta=document.getElementById(`bulktext-${subjectId}`); if(ta && !ta.value.trim()){ ta.value="Topic 1 | 5\nTopic 2 | 8\nOnly name defaults to 1"; }
+}
+function onBulkApply(subjectId){
+  const ta=document.getElementById(`bulktext-${subjectId}`); if(!ta) return;
+  const lines=ta.value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if(!lines.length){ alert("Nothing to add."); return; }
+  dirty(()=> { for(const line of lines){ const m=line.split("|"); const name=(m[0]||"Untitled topic").trim(); const chunks=m[1]?Math.floor(Number(m[1])):1; addTopic(subjectId, name, Number.isFinite(chunks)&&chunks>0?chunks:1); } });
+  ta.value=""; const det=document.getElementById(`bulk-${subjectId}`); if(det) det.open=false;
+}
+function onToggleSubject(subjectId){ dirty(()=> toggleSubject(subjectId)); }
+
+/* ---------- helpers ---------- */
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+
+/* ---------- export / import ---------- */
+function onExport(){
+  const data=JSON.stringify(state, null, 2);
+  const blob=new Blob([data], {type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download="exams-progress-backup.json"; a.click();
+  URL.revokeObjectURL(url);
+}
+async function onImport(e){
+  const file=e.target.files?.[0]; if(!file) return;
+  try{ const text=await file.text(); state=JSON.parse(text); normalize(); save(); render(); }
+  catch(err){ alert("Import failed: " + err.message); }
+  finally{ e.target.value=""; }
+}
+$("#exportBtn").onclick = onExport;
+$("#importInp").onchange = onImport;
+$("#demoBtn").onclick = ()=>{
+  if(!confirm("Load demo data? This replaces your in-app data (export a backup first).")) return;
+  state = demoData(); save(); render();
+};
+
+/* ---------- demo ---------- */
+function demoData(){
+  const e1={ id:uid(), name:"RRB JE 2025", syllabusUrl:"", notifications:{ currentUrl:"", pastUrls:[] }, cutoff:{ currentUrl:"", pastUrls:[] }, subjects:[
+    { id:uid(), name:"History", collapsed:false, topics:[
+      { id:uid(), name:"President of India", chunks:2, completed:[true,false] },
+      { id:uid(), name:"PM of India", chunks:3, completed:[false,false,false] },
+      { id:uid(), name:"Organisation by Indian", chunks:5, completed:[false,false,false,false,false] },
+    ]},
+    { id:uid(), name:"Physics", collapsed:true, topics:[] }
+  ]};
+  const e2={ id:uid(), name:"SSC JE 2025", syllabusUrl:"", notifications:{ currentUrl:"", pastUrls:[] }, cutoff:{ currentUrl:"", pastUrls:[] }, subjects:[
+    { id:uid(), name:"Strength of Materials", collapsed:false, topics:[
+      { id:uid(), name:"Bending Stresses", chunks:6, completed:[true,true,true,false,false,false] }
+    ]}
+  ]};
+  return { exams:[e1,e2], currentExamId:e1.id, ui:{tab:"subjects"} };
+}
+
+/* ---------- boot ---------- */
+normalize(); render();
+</script>
+</body>
+</html>
