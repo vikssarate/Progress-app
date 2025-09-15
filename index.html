@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Subject → Topics → Chunks — Progress Tracker</title>
+<style>
+:root{
+  --bg:#0f1220;--card:#181c2f;--ink:#eef1ff;--muted:#9aa3c7;--line:#2a3052;
+  --ok:#7bd88f;--warn:#ffd166;--bad:#ff7575;--accent:#6ca8ff
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;-webkit-tap-highlight-color:transparent}
+header,footer{padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+header h1{margin:0;font-size:18px;font-weight:700}
+.wrap{max-width:1100px;margin:0 auto;padding:16px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px}
+button,.btn{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;cursor:pointer}
+button:hover{box-shadow:0 0 0 1px var(--accent)}
+input,textarea,select{background:transparent;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:9px 10px;font:inherit}
+input[type="number"]{width:88px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:14px 0}
+.card h2{margin:0 0 8px 0;font-size:16px;display:flex;align-items:center;gap:8px}
+.small{font-size:12px;color:var(--muted)}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.split{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.bar{position:relative;height:14px;background:#10152b;border:1px solid var(--line);border-radius:999px;overflow:hidden;min-width:200px}
+.fill{position:absolute;inset:0 0 0 0;width:0%;background:linear-gradient(90deg,var(--accent),#82b6ff)}
+.bar span{position:relative;z-index:1;font-size:11px;color:#000;mix-blend-mode:screen;padding-left:8px}
+.topic{border:1px dashed var(--line);border-radius:12px;padding:10px;margin-top:10px}
+.topic h3{margin:0 0 8px 0;font-size:14px;display:flex;align-items:center;gap:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);border-radius:10px;padding:6px 9px;cursor:pointer;user-select:none}
+.chip.done{background:rgba(123,216,143,.15);border-color:var(--ok)}
+.badge{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px;color:var(--muted)}
+hr.sep{border:none;border-top:1px solid var(--line);margin:10px 0}
+details{border:1px solid var(--line);border-radius:12px;padding:8px;background:rgba(255,255,255,0.02)}
+details summary{cursor:pointer;font-weight:600}
+a.link{color:var(--accent);text-decoration:none}
+input.inline{border:none;border-bottom:1px dashed var(--line);border-radius:0;padding:2px 6px}
+.warning{color:var(--warn)}
+.ok{color:var(--ok)}
+.danger{color:var(--bad)}
+@media (max-width:520px){ .bar{min-width:160px} }
+</style>
+</head>
+<body>
+<header>
+  <h1>📚 Subject → Topics → Chunks — Progress Tracker</h1>
+  <div class="toolbar">
+    <button id="addSubjectBtn">➕ Add Subject</button>
+    <button id="exportBtn">⬇️ Export</button>
+    <label class="btn" for="importInp">⬆️ Import</label>
+    <input id="importInp" type="file" accept="application/json" style="display:none">
+    <button id="demoBtn" class="small">Load Demo</button>
+    <span id="savedBadge" class="badge">Saved</span>
+  </div>
+</header>
+
+<div class="wrap" id="mount"></div>
+
+<footer style="border-top:1px solid var(--line)">
+  <div class="wrap small">
+    Tips: Tap a chunk to toggle ✓. Change a topic’s chunk count via “Edit”. Subject % = (all completed chunks ÷ all chunks) × 100. Data is stored locally in your browser.
+  </div>
+</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+const mount = $("#mount");
+const savedBadge = $("#savedBadge");
+const LSK = "subject_topic_chunk_progress_v1";
+
+let state = load() ?? { subjects: [] };
+let saveTimer;
+
+function uid(){ return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+function load(){
+  try{ return JSON.parse(localStorage.getItem(LSK)); }catch(e){ return null; }
+}
+function save(){
+  localStorage.setItem(LSK, JSON.stringify(state));
+  savedPulse();
+}
+function savedPulse(){
+  savedBadge.textContent = "Saved";
+  savedBadge.style.opacity = 1;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{ savedBadge.style.opacity = .4; }, 1200);
+}
+function dirty(fn){
+  fn && fn();
+  save();
+  render();
+}
+
+function addSubject(name){
+  state.subjects.push({ id: uid(), name, topics: [] });
+}
+function removeSubject(id){
+  const i = state.subjects.findIndex(s=>s.id===id);
+  if(i>=0) state.subjects.splice(i,1);
+}
+function renameSubject(id, name){
+  const s = state.subjects.find(s=>s.id===id); if(!s) return;
+  s.name = name;
+}
+
+function addTopic(subjectId, name, chunks){
+  chunks = Math.max(1, Math.min(500, Number(chunks||1)));
+  const s = state.subjects.find(s=>s.id===subjectId); if(!s) return;
+  s.topics.push({ id: uid(), name, chunks, completed: Array(chunks).fill(false) });
+}
+function removeTopic(subjectId, topicId){
+  const s = state.subjects.find(s=>s.id===subjectId); if(!s) return;
+  const i = s.topics.findIndex(t=>t.id===topicId);
+  if(i>=0) s.topics.splice(i,1);
+}
+function editTopic(subjectId, topicId, newName, newChunks){
+  const s = state.subjects.find(s=>s.id===subjectId); if(!s) return;
+  const t = s.topics.find(t=>t.id===topicId); if(!t) return;
+  t.name = newName;
+  const n = Math.max(1, Math.min(500, Number(newChunks||t.chunks)));
+  if(n !== t.chunks){
+    if(n > t.chunks){
+      t.completed.push(...Array(n - t.chunks).fill(false));
+    }else{
+      t.completed = t.completed.slice(0, n);
+    }
+    t.chunks = n;
+  }
+}
+function toggleChunk(subjectId, topicId, idx){
+  const t = getTopic(subjectId, topicId); if(!t) return;
+  t.completed[idx] = !t.completed[idx];
+}
+function setAllChunks(subjectId, topicId, val){
+  const t = getTopic(subjectId, topicId); if(!t) return;
+  t.completed = Array(t.chunks).fill(!!val);
+}
+function getTopic(subjectId, topicId){
+  const s = state.subjects.find(s=>s.id===subjectId); if(!s) return null;
+  return s.topics.find(t=>t.id===topicId) || null;
+}
+
+function topicStats(t){
+  const done = t.completed.filter(Boolean).length;
+  const pct = Math.round((done / t.chunks) * 100);
+  const allDone = done === t.chunks;
+  return {done, pct, allDone};
+}
+function subjectStats(s){
+  let totalChunks = 0, totalDone = 0, topicAll = 0;
+  for(const t of s.topics){
+    const st = topicStats(t);
+    totalChunks += t.chunks;
+    totalDone   += st.done;
+    if(st.allDone) topicAll++;
+  }
+  const pct = totalChunks ? Math.round((totalDone/totalChunks)*100) : 0;
+  const allDone = s.topics.length>0 && topicAll === s.topics.length;
+  return { totalChunks, totalDone, pct, topicAll, allDone };
+}
+
+function render(){
+  mount.innerHTML = "";
+  if(state.subjects.length===0){
+    const empty = document.createElement("div");
+    empty.className="card";
+    empty.innerHTML = `
+      <h2>No subjects yet</h2>
+      <div class="small">Tap “Add Subject” to create your first subject, then add topics with their chunk counts.</div>
+    `;
+    mount.appendChild(empty);
+    return;
+  }
+
+  for(const s of state.subjects){
+    const stat = subjectStats(s);
+    const card = document.createElement("div");
+    card.className = "card";
+
+    const subjectHeader = document.createElement("div");
+    subjectHeader.className = "split";
+    subjectHeader.innerHTML = `
+      <h2>
+        <input class="inline" value="${escapeHtml(s.name)}" data-subject-rename="${s.id}" aria-label="Subject name"/>
+        <span class="badge">${s.topics.length} topic${s.topics.length!==1?'s':''}</span>
+        ${stat.allDone ? '<span class="badge ok">✓ All topics complete</span>' : ''}
+      </h2>
+      <div class="row">
+        <div class="bar" title="Subject progress">
+          <div class="fill" style="width:${stat.pct}%"></div>
+          <span>${stat.pct}%</span>
+        </div>
+        <span class="small">${stat.totalDone}/${stat.totalChunks} chunks • ${stat.topicAll}/${s.topics.length} topics</span>
+        <button onclick="onAddTopic('${s.id}')">➕ Add Topic</button>
+        <button onclick="onBulkAdd('${s.id}')" title="Bulk add topics">📥 Bulk</button>
+        <button class="danger" onclick="onDeleteSubject('${s.id}')">🗑️ Delete Subject</button>
+      </div>
+    `;
+    card.appendChild(subjectHeader);
+
+    // topics
+    for(const t of s.topics){
+      const ts = topicStats(t);
+      const topic = document.createElement("div");
+      topic.className = "topic";
+      topic.innerHTML = `
+        <div class="split">
+          <h3>
+            <span>${ts.allDone ? '✅' : '🧩'}</span>
+            <input class="inline" value="${escapeHtml(t.name)}" data-topic-rename="${s.id}::${t.id}" aria-label="Topic name"/>
+            <span class="badge">${ts.done}/${t.chunks} chunks</span>
+            <span class="badge">${ts.pct}%</span>
+          </h3>
+          <div class="row">
+            <div class="bar" style="min-width:140px">
+              <div class="fill" style="width:${ts.pct}%"></div>
+              <span>${ts.pct}%</span>
+            </div>
+            <button onclick="onEditTopic('${s.id}','${t.id}')">✏️ Edit</button>
+            <button onclick="dirty(()=>setAllChunks('${s.id}','${t.id}',true))">✔️ All</button>
+            <button onclick="dirty(()=>setAllChunks('${s.id}','${t.id}',false))">↺ Reset</button>
+            <button class="danger" onclick="onDeleteTopic('${s.id}','${t.id}')">🗑️ Delete</button>
+          </div>
+        </div>
+        <div class="chips" id="chips-${t.id}"></div>
+      `;
+      card.appendChild(topic);
+
+      // render chips
+      const chipsWrap = topic.querySelector(`#chips-${t.id}`);
+      for(let i=0;i<t.chunks;i++){
+        const chip = document.createElement("div");
+        chip.className = "chip"+(t.completed[i]?' done':'');
+        chip.textContent = i+1;
+        chip.title = t.completed[i] ? "Completed — tap to undo" : "Not done — tap to complete";
+        chip.onclick = ()=> dirty(()=> toggleChunk(s.id, t.id, i));
+        chipsWrap.appendChild(chip);
+      }
+    }
+
+    // Bulk add details (hidden container, we open it programmatically)
+    const bulk = document.createElement("details");
+    bulk.id = `bulk-${s.id}`;
+    bulk.style.marginTop = "10px";
+    bulk.innerHTML = `
+      <summary>Bulk add topics to <strong>${escapeHtml(s.name)}</strong></summary>
+      <div class="row" style="margin-top:8px">
+        <textarea id="bulktext-${s.id}" rows="6" style="width:100%;max-width:720px" placeholder="One per line. Format:
+Topic name | chunks
+Topic two | 5
+Only name (defaults to 1 chunk)"></textarea>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button onclick="onBulkApply('${s.id}')">Add Topics</button>
+        <span class="small">Tip: Large lists are fine. Chunk count is capped at 500.</span>
+      </div>
+    `;
+    card.appendChild(document.createElement("hr")).className="sep";
+    card.appendChild(bulk);
+
+    mount.appendChild(card);
+  }
+
+  // hook up inline rename handlers after DOM paint
+  requestAnimationFrame(()=> {
+    document.querySelectorAll("[data-subject-rename]").forEach(inp=>{
+      inp.onchange = (e)=> dirty(()=> renameSubject(inp.dataset.subjectRename, e.target.value.trim()||"Untitled"));
+    });
+    document.querySelectorAll("[data-topic-rename]").forEach(inp=>{
+      inp.onchange = (e)=>{
+        const [sid,tid] = inp.dataset.topicRename.split("::");
+        const t = getTopic(sid,tid);
+        if(!t) return;
+        dirty(()=> { t.name = e.target.value.trim()||"Untitled topic"; });
+      };
+    });
+  });
+}
+
+function onAddTopic(subjectId){
+  const name = prompt("Topic name?");
+  if(name===null) return;
+  let chunks = prompt("How many chunks for this topic?", "5");
+  if(chunks===null) return;
+  chunks = Number(chunks);
+  if(!Number.isFinite(chunks) || chunks<1){ alert("Please enter a valid number of chunks (>=1)"); return; }
+  dirty(()=> addTopic(subjectId, name.trim()||"Untitled topic", Math.floor(chunks)));
+}
+function onEditTopic(subjectId, topicId){
+  const t = getTopic(subjectId, topicId); if(!t) return;
+  const newName = prompt("Rename topic:", t.name);
+  if(newName===null) return;
+  let newChunks = prompt("Change chunk count:", t.chunks);
+  if(newChunks===null) return;
+  newChunks = Number(newChunks);
+  if(!Number.isFinite(newChunks) || newChunks<1){ alert("Please enter a valid number of chunks (>=1)"); return; }
+  dirty(()=> editTopic(subjectId, topicId, newName.trim()||"Untitled topic", Math.floor(newChunks)));
+}
+function onDeleteTopic(subjectId, topicId){
+  if(!confirm("Delete this topic? This cannot be undone.")) return;
+  dirty(()=> removeTopic(subjectId, topicId));
+}
+function onDeleteSubject(subjectId){
+  if(!confirm("Delete this subject and all its topics? This cannot be undone.")) return;
+  dirty(()=> removeSubject(subjectId));
+}
+function onBulkAdd(subjectId){
+  const det = document.getElementById(`bulk-${subjectId}`);
+  if(det) det.open = true;
+  const ta = document.getElementById(`bulktext-${subjectId}`);
+  if(ta && !ta.value.trim()){
+    ta.value = "Topic 1 | 5\nTopic 2 | 8\nOnly name defaults to 1";
+  }
+}
+function onBulkApply(subjectId){
+  const ta = document.getElementById(`bulktext-${subjectId}`);
+  if(!ta) return;
+  const lines = ta.value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if(!lines.length){ alert("Nothing to add."); return; }
+  dirty(()=> {
+    for(const line of lines){
+      const m = line.split("|");
+      const name = (m[0]||"Untitled topic").trim();
+      const chunks = m[1] ? Math.floor(Number(m[1])) : 1;
+      addTopic(subjectId, name, Number.isFinite(chunks)&&chunks>0 ? chunks : 1);
+    }
+  });
+  ta.value = "";
+  const det = document.getElementById(`bulk-${subjectId}`);
+  if(det) det.open = false;
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+// Header buttons
+$("#addSubjectBtn").onclick = ()=>{
+  const name = prompt("Subject name?");
+  if(name===null) return;
+  dirty(()=> addSubject(name.trim()||"Untitled"));
+};
+$("#exportBtn").onclick = ()=>{
+  const data = JSON.stringify(state, null, 2);
+  const blob = new Blob([data], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "progress-backup.json"; a.click();
+  URL.revokeObjectURL(url);
+};
+$("#importInp").onchange = async (e)=>{
+  const file = e.target.files?.[0];
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const obj = JSON.parse(text);
+    if(!obj || !Array.isArray(obj.subjects)) throw new Error("Invalid file");
+    state = obj;
+    save(); render();
+  }catch(err){
+    alert("Import failed: " + err.message);
+  }finally{
+    e.target.value = "";
+  }
+};
+$("#demoBtn").onclick = ()=>{
+  if(!confirm("Load demo data? This will replace your current in-app data (you can export a backup first).")) return;
+  state = demoData();
+  save(); render();
+};
+
+function demoData(){
+  return {
+    subjects: [
+      { id: uid(), name: "Mathematics", topics: [
+        { id: uid(), name:"Algebra – Quadratics", chunks: 6, completed:[true,true,false,false,false,false] },
+        { id: uid(), name:"Calculus – Limits", chunks: 5, completed:[true,true,true,false,false] },
+        { id: uid(), name:"Geometry – Circles", chunks: 4, completed:[false,false,false,false] },
+      ]},
+      { id: uid(), name: "Physics", topics: [
+        { id: uid(), name:"Kinematics", chunks: 8, completed:[true,true,true,true,true,true,false,false] },
+        { id: uid(), name:"Waves", chunks: 5, completed:[false,false,false,false,false] },
+      ]},
+    ]
+  };
+}
+
+// initial paint
+render();
+</script>
+</body>
+</html>
