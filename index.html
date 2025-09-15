@@ -44,18 +44,26 @@ input.inline{border:none;border-bottom:1px dashed var(--line);border-radius:0;pa
 .danger{color:var(--bad)}
 .toggle{width:34px;height:34px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-weight:700}
 .pctLabel{font-weight:700}
+
 /* Global/Exam header */
 .hero{display:flex;flex-direction:column;gap:10px}
 .heroTop{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .hero .bar{min-width:260px;height:16px}
 .hero .pct{font-weight:800}
 .examRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.examName{min-width:220px}
-.overviewRow{display:flex;align-items:center;gap:10px;justify-content:space-between}
-.overviewRow .bar{min-width:160px}
+
+/* Tabs */
+.tabs{display:flex;gap:8px;margin:6px 0 0 0;border-bottom:1px solid var(--line)}
+.tabs button{background:transparent;border:1px solid var(--line);border-bottom:none;padding:8px 12px;border-top-left-radius:10px;border-top-right-radius:10px}
+.tabs button.active{background:var(--card);box-shadow:0 -2px 0 var(--accent) inset;font-weight:700}
+
+/* PDF viewer */
+.pdfWrap{margin-top:10px}
+.pdfWrap iframe{width:100%;height:70vh;border:1px solid var(--line);border-radius:12px;background:#fff}
 @media (max-width:520px){
   .bar{min-width:160px}
   .hero .bar{min-width:180px}
+  .pdfWrap iframe{height:65vh}
 }
 </style>
 </head>
@@ -71,13 +79,13 @@ input.inline{border:none;border-bottom:1px dashed var(--line);border-radius:0;pa
   </div>
 </header>
 
-<!-- Current exam header & progress -->
+<!-- Current exam header & progress + tabs -->
 <div class="wrap" id="examMount"></div>
 
 <!-- Exams overview -->
 <div class="wrap" id="overviewMount"></div>
 
-<!-- Subjects of current exam -->
+<!-- Main area (subjects OR syllabus) -->
 <div class="wrap" id="mount"></div>
 
 <footer style="border-top:1px solid var(--line)">
@@ -93,7 +101,7 @@ const mount = $("#mount");
 const examMount = $("#examMount");
 const overviewMount = $("#overviewMount");
 const savedBadge = $("#savedBadge");
-const LSK = "subject_topic_chunk_progress_v1"; // keep same key; we migrate
+const LSK = "subject_topic_chunk_progress_v1"; // keep same key; we migrated earlier
 
 let state = load() ?? {};
 let saveTimer;
@@ -121,33 +129,35 @@ function dirty(fn){
 
 // ---------- migration & normalization ----------
 function normalize(){
-  // If this is the newest schema, ensure fields exist
+  // New schema: exams[]
   if(state.exams && Array.isArray(state.exams)){
     state.exams.forEach(ex=>{
       if(typeof ex.name!=="string") ex.name = "Untitled Exam";
       if(!Array.isArray(ex.subjects)) ex.subjects = [];
+      if(typeof ex.syllabusUrl!=="string") ex.syllabusUrl = "";
       ex.subjects.forEach(s=>{ if(typeof s.collapsed!=="boolean") s.collapsed=false; });
     });
     if(!state.currentExamId){
       state.currentExamId = state.exams[0]?.id || null;
     }
+    if(!state.ui) state.ui = { tab:"subjects" };
+    if(!state.ui.tab) state.ui.tab = "subjects";
     return;
   }
-
-  // Older schema with {exam, subjects}
+  // Older single-exam schema
   if(state.subjects){
     const examId = uid();
     const name = state.exam?.name || "Untitled Exam";
     state = {
-      exams: [{ id: examId, name, subjects: state.subjects }],
-      currentExamId: examId
+      exams: [{ id: examId, name, syllabusUrl:"", subjects: state.subjects }],
+      currentExamId: examId,
+      ui: { tab:"subjects" }
     };
     return;
   }
-
   // Empty
-  const examId = uid();
-  state = { exams: [{ id: examId, name: "Untitled Exam", subjects: [] }], currentExamId: examId };
+  const id = uid();
+  state = { exams:[{ id, name:"Untitled Exam", syllabusUrl:"", subjects:[] }], currentExamId:id, ui:{tab:"subjects"} };
 }
 
 function currentExam(){
@@ -186,7 +196,7 @@ function examStats(exam){
 // ---------- exam CRUD ----------
 function addExam(name){
   const id = uid();
-  state.exams.push({ id, name: name||"New Exam", subjects: [] });
+  state.exams.push({ id, name: name||"New Exam", syllabusUrl:"", subjects: [] });
   state.currentExamId = id;
 }
 function renameExam(id, newName){
@@ -199,13 +209,17 @@ function removeExam(id){
   state.exams.splice(i,1);
   if(state.exams.length===0){
     const idNew = uid();
-    state.exams.push({ id:idNew, name:"Untitled Exam", subjects: [] });
+    state.exams.push({ id:idNew, name:"Untitled Exam", syllabusUrl:"", subjects: [] });
     state.currentExamId = idNew;
   }else if(state.currentExamId===id){
     state.currentExamId = state.exams[0].id;
   }
 }
 function setCurrentExam(id){ state.currentExamId = id; }
+function setSyllabusUrl(url){
+  const ex = currentExam(); if(!ex) return;
+  ex.syllabusUrl = url || "";
+}
 
 // ---------- subject/topic CRUD (per current exam) ----------
 function addSubject(name){
@@ -264,6 +278,30 @@ function setAllChunks(subjectId, topicId, val){
   t.completed = Array(t.chunks).fill(!!val);
 }
 
+// ---------- Drive helpers ----------
+function extractDriveId(url){
+  try{
+    const u = new URL(url);
+    if(u.hostname.includes("drive.google.com")){
+      // /file/d/FILEID/...
+      const m = u.pathname.match(/\/file\/d\/([^/]+)/);
+      if(m) return m[1];
+      // open?id=FILEID
+      if(u.searchParams.get("id")) return u.searchParams.get("id");
+      // uc?export=download&id=FILEID
+      if(u.searchParams.get("export")==="download" && u.searchParams.get("id")) return u.searchParams.get("id");
+    }
+  }catch(e){}
+  return null;
+}
+function makePdfEmbed(url){
+  // Prefer Drive preview if it’s a Drive link
+  const id = extractDriveId(url);
+  if(id) return `https://drive.google.com/file/d/${id}/preview`;
+  // Fallback: Google viewer for any direct PDF URL
+  return `https://drive.google.com/viewerng/viewer?embedded=true&url=${encodeURIComponent(url)}`;
+}
+
 // ---------- rendering ----------
 function renderExamHeader(){
   const ex = currentExam();
@@ -279,7 +317,7 @@ function renderExamHeader(){
         <div class="examRow">
           <span class="small">📝 Exam:</span>
           ${sel}
-          <input class="inline examName" id="examName" value="${escapeHtml(ex.name)}" placeholder="Rename current exam"/>
+          <input class="inline" id="examName" value="${escapeHtml(ex.name)}" placeholder="Rename current exam"/>
           <button id="addExamBtn">➕ Add Exam</button>
           <button id="delExamBtn" class="danger">🗑️ Delete Exam</button>
         </div>
@@ -289,7 +327,13 @@ function renderExamHeader(){
         <span class="pct">${st.pct}% of 100%</span>
         <span class="small">${st.totalDone}/${st.totalChunks||0} chunks • ${st.subjectsAll}/${st.subjectCount} subjects done</span>
       </div>
-      <div class="row">
+
+      <div class="tabs" role="tablist">
+        <button id="tabSubjects" class="${state.ui.tab==='subjects'?'active':''}" role="tab" aria-selected="${state.ui.tab==='subjects'}">Subjects</button>
+        <button id="tabSyllabus" class="${state.ui.tab==='syllabus'?'active':''}" role="tab" aria-selected="${state.ui.tab==='syllabus'}">Syllabus PDF</button>
+      </div>
+
+      <div class="row" style="margin-top:8px">
         <button id="addSubjectBtn">➕ Add Subject</button>
         <button id="exportBtn2">⬇️ Export</button>
         <label class="btn" for="importInp2">⬆️ Import</label>
@@ -313,7 +357,10 @@ function renderExamHeader(){
     const name = prompt("Subject name?"); if(name===null) return;
     dirty(()=> addSubject((name.trim()||"Untitled")));
   };
-  // mirror header export/import buttons
+  // Tabs
+  $("#tabSubjects").onclick = ()=> dirty(()=> state.ui.tab = "subjects");
+  $("#tabSyllabus").onclick = ()=> dirty(()=> state.ui.tab = "syllabus");
+  // mirror export/import
   $("#exportBtn2").onclick = onExport;
   $("#importInp2").onchange = onImport;
 }
@@ -323,7 +370,7 @@ function renderOverview(){
   const rows = state.exams.map(e=>{
     const st = examStats(e);
     return `
-      <div class="overviewRow">
+      <div class="row" style="gap:10px;justify-content:space-between;align-items:center;margin:6px 0">
         <div class="row" style="gap:8px">
           <span class="small">${escapeHtml(e.name)}</span>
           <span class="badge">${st.totalDone}/${st.totalChunks||0} chunks</span>
@@ -337,7 +384,7 @@ function renderOverview(){
   overviewMount.innerHTML = `
     <details class="card" open>
       <summary>🗂 All Exams Overview</summary>
-      <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">${rows}</div>
+      <div style="display:flex;flex-direction:column">${rows}</div>
     </details>
   `;
 }
@@ -458,11 +505,41 @@ Only name (defaults to 1 chunk)"></textarea>
   });
 }
 
+function renderSyllabus(){
+  const ex = currentExam();
+  const url = ex.syllabusUrl || "";
+  const embed = url ? makePdfEmbed(url) : "";
+  mount.innerHTML = `
+    <div class="card">
+      <h2>📄 Syllabus PDF</h2>
+      <div class="row">
+        <input id="syllabusInp" style="min-width:280px;flex:1" placeholder="Paste Google Drive share link (or any PDF URL)" value="${escapeHtml(url)}"/>
+        <button id="saveSyllabusBtn">Save</button>
+        ${url ? `<a class="btn" id="openSyllabus" target="_blank" rel="noopener">Open</a>
+                 <button class="danger" id="clearSyllabusBtn">Clear</button>` : ""}
+      </div>
+      ${url ? `<div class="pdfWrap"><iframe src="${embed}" allow="autoplay"></iframe></div>`
+            : `<div class="small" style="margin-top:8px">
+                 Tip: In Google Drive, share your PDF as “Anyone with the link – Viewer”, copy the link, and paste above.
+               </div>`}
+    </div>
+  `;
+  $("#saveSyllabusBtn").onclick = ()=> {
+    const val = $("#syllabusInp").value.trim();
+    dirty(()=> setSyllabusUrl(val||""));
+  };
+  const open = $("#openSyllabus");
+  if(open) open.href = url;
+  const clear = $("#clearSyllabusBtn");
+  if(clear) clear.onclick = ()=> dirty(()=> setSyllabusUrl(""));
+}
+
 function render(){
   normalize();
   renderExamHeader();
   renderOverview();
-  renderSubjects();
+  if(state.ui.tab === "syllabus") renderSyllabus();
+  else renderSubjects();
 }
 
 // ---------- UI handlers required by inline HTML ----------
@@ -520,7 +597,7 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 }
 
-// ---------- export / import (both header toolbars share handlers) ----------
+// ---------- export / import ----------
 function onExport(){
   const data = JSON.stringify(state, null, 2);
   const blob = new Blob([data], {type:"application/json"});
@@ -533,15 +610,11 @@ async function onImport(e){
   const file = e.target.files?.[0]; if(!file) return;
   try{
     const text = await file.text();
-    const obj = JSON.parse(text);
-    // Accept both old and new schemas; normalize after assign
-    state = obj;
+    state = JSON.parse(text);
     normalize(); save(); render();
   }catch(err){ alert("Import failed: " + err.message); }
   finally{ e.target.value = ""; }
 }
-
-// Header toolbar binds
 $("#exportBtn").onclick = onExport;
 $("#importInp").onchange = onImport;
 $("#demoBtn").onclick = ()=>{
@@ -551,7 +624,7 @@ $("#demoBtn").onclick = ()=>{
 
 // ---------- demo ----------
 function demoData(){
-  const e1 = { id: uid(), name: "RRB JE 2025", subjects: [
+  const e1 = { id: uid(), name: "RRB JE 2025", syllabusUrl:"", subjects: [
     { id: uid(), name:"History", collapsed:false, topics:[
       { id: uid(), name:"President of India", chunks:2, completed:[true,false] },
       { id: uid(), name:"PM of India", chunks:3, completed:[false,false,false] },
@@ -559,12 +632,12 @@ function demoData(){
     ]},
     { id: uid(), name:"Physics", collapsed:true, topics:[] }
   ]};
-  const e2 = { id: uid(), name: "SSC JE 2025", subjects: [
+  const e2 = { id: uid(), name: "SSC JE 2025", syllabusUrl:"", subjects: [
     { id: uid(), name:"Strength of Materials", collapsed:false, topics:[
       { id: uid(), name:"Bending Stresses", chunks:6, completed:[true,true,true,false,false,false] }
     ]}
   ]};
-  return { exams:[e1,e2], currentExamId: e1.id };
+  return { exams:[e1,e2], currentExamId: e1.id, ui:{tab:"subjects"} };
 }
 
 // ---------- boot ----------
