@@ -45,10 +45,11 @@ input.inline{border:none;border-bottom:1px dashed var(--line);border-radius:0;pa
 .toggle{width:34px;height:34px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-weight:700}
 .pctLabel{font-weight:700}
 /* Global progress card */
-.hero{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.heroTitle{font-size:15px;font-weight:700;margin:0}
+.hero{display:flex;flex-direction:column;gap:10px}
+.heroTop{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .hero .bar{min-width:260px;height:16px}
 .hero .pct{font-weight:800}
+.examName{font-size:16px;font-weight:700;min-width:220px}
 @media (max-width:520px){
   .bar{min-width:160px}
   .hero .bar{min-width:180px}
@@ -87,12 +88,17 @@ const globalMount = $("#globalMount");
 const savedBadge = $("#savedBadge");
 const LSK = "subject_topic_chunk_progress_v1";
 
-let state = load() ?? { subjects: [] };
+let state = load() ?? { exam:{name:"Untitled Exam"}, subjects: [] };
 let saveTimer;
 
 function uid(){ return Math.random().toString(36).slice(2) + Date.now().toString(36); }
 function load(){
   try{ return JSON.parse(localStorage.getItem(LSK)); }catch(e){ return null; }
+}
+function normalize(){
+  if(!state.exam) state.exam = { name:"Untitled Exam" };
+  if(typeof state.exam.name !== "string") state.exam.name = "Untitled Exam";
+  (state.subjects||[]).forEach(s=>{ if(typeof s.collapsed!=="boolean") s.collapsed=false; });
 }
 function save(){
   localStorage.setItem(LSK, JSON.stringify(state));
@@ -109,6 +115,8 @@ function dirty(fn){
   save();
   render();
 }
+
+function setExamName(name){ state.exam.name = name; }
 
 function addSubject(name){
   state.subjects.push({ id: uid(), name, topics: [], collapsed:false });
@@ -197,21 +205,28 @@ function renderGlobal(){
   const g = overallStats();
   globalMount.innerHTML = `
     <div class="card hero" aria-label="Overall exam progress">
-      <h2 class="heroTitle">📈 Overall Exam Progress</h2>
-      <div class="bar" title="Overall progress">
-        <div class="fill" style="width:${g.pct}%"></div>
+      <div class="heroTop">
+        <div class="row">
+          <span class="small">📝 Exam:</span>
+          <input class="inline examName" value="${escapeHtml(state.exam.name||'')}"
+                 data-exam-name="1" placeholder="Enter exam name (e.g., SSC JE 2025)"/>
+        </div>
+        <div class="bar" title="Overall progress">
+          <div class="fill" style="width:${g.pct}%"></div>
+        </div>
+        <span class="pct">${g.pct}% of 100%</span>
+        <span class="small">${g.totalDone}/${g.totalChunks || 0} chunks • ${g.subjectsAll}/${g.subjectCount} subjects done</span>
       </div>
-      <span class="pct">${g.pct}% of 100%</span>
-      <span class="small">${g.totalDone}/${g.totalChunks || 0} chunks • ${g.subjectsAll}/${g.subjectCount} subjects done</span>
     </div>
   `;
+  // Also reflect in browser tab title
+  document.title = (state.exam?.name ? `${state.exam.name} — ` : "") + "Progress Tracker";
 }
 
 function render(){
-  // Top overall card
+  normalize(); // ensure exam + collapsed keys
   renderGlobal();
 
-  // Subjects
   mount.innerHTML = "";
   if(state.subjects.length===0){
     const empty = document.createElement("div");
@@ -221,11 +236,13 @@ function render(){
       <div class="small">Tap “Add Subject” to create your first subject, then add topics with their chunk counts.</div>
     `;
     mount.appendChild(empty);
+    // hook exam name input when no subjects too
+    hookInlineHandlers();
     return;
   }
 
   for(const s of state.subjects){
-    if(typeof s.collapsed!=="boolean") s.collapsed=false; // back-compat
+    if(typeof s.collapsed!=="boolean") s.collapsed=false;
     const stat = subjectStats(s);
     const card = document.createElement("div");
     card.className = "card";
@@ -313,8 +330,13 @@ Only name (defaults to 1 chunk)"></textarea>
     mount.appendChild(card);
   }
 
-  // Inline rename handlers
+  hookInlineHandlers();
+}
+
+function hookInlineHandlers(){
   requestAnimationFrame(()=> {
+    const examInp = document.querySelector("[data-exam-name]");
+    if(examInp) examInp.onchange = (e)=> dirty(()=> setExamName(e.target.value.trim()||"Untitled Exam"));
     document.querySelectorAll("[data-subject-rename]").forEach(inp=>{
       inp.onchange = (e)=> dirty(()=> renameSubject(inp.dataset.subjectRename, e.target.value.trim()||"Untitled"));
     });
@@ -410,7 +432,8 @@ $("#importInp").onchange = async (e)=>{
     const text = await file.text();
     const obj = JSON.parse(text);
     if(!obj || !Array.isArray(obj.subjects)) throw new Error("Invalid file");
-    obj.subjects.forEach(s=>{ if(typeof s.collapsed!=="boolean") s.collapsed=false; }); // normalize
+    if(!obj.exam) obj.exam = { name:"Untitled Exam" };
+    obj.subjects.forEach(s=>{ if(typeof s.collapsed!=="boolean") s.collapsed=false; });
     state = obj;
     save(); render();
   }catch(err){
@@ -427,6 +450,7 @@ $("#demoBtn").onclick = ()=>{
 
 function demoData(){
   return {
+    exam: { name: "RRB JE 2025" },
     subjects: [
       { id: uid(), name: "History", collapsed:false, topics: [
         { id: uid(), name:"President of India", chunks: 2, completed:[true,false] },
