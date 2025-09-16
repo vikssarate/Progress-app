@@ -124,15 +124,25 @@ function normalize(){
       if(typeof ex.name!=="string") ex.name = "Untitled Exam";
       if(!Array.isArray(ex.subjects)) ex.subjects = [];
       if(typeof ex.syllabusUrl!=="string") ex.syllabusUrl = "";
+
       if(!ex.notifications) ex.notifications = { currentUrl:"", pastUrls:[] };
       if(typeof ex.notifications.currentUrl!=="string") ex.notifications.currentUrl = "";
       if(!Array.isArray(ex.notifications.pastUrls)) ex.notifications.pastUrls = [];
+
       if(!ex.cutoff) ex.cutoff = { currentUrl:"", pastUrls:[] };
       if(typeof ex.cutoff.currentUrl!=="string") ex.cutoff.currentUrl = "";
       if(!Array.isArray(ex.cutoff.pastUrls)) ex.cutoff.pastUrls = [];
+
       if(!ex.selection) ex.selection = { required:null, total:null };
-      // NEW: response sheet
+
+      // NEW earlier: response sheet
       if(typeof ex.responseUrl!=="string") ex.responseUrl = "";
+
+      // NEW NOW: question papers (current + past)
+      if(!ex.questionPapers) ex.questionPapers = { currentUrl:"", pastUrls:[] };
+      if(typeof ex.questionPapers.currentUrl!=="string") ex.questionPapers.currentUrl = "";
+      if(!Array.isArray(ex.questionPapers.pastUrls)) ex.questionPapers.pastUrls = [];
+
       ex.subjects.forEach(s=>{ if(typeof s.collapsed!=="boolean") s.collapsed=false; });
     });
     if(!state.currentExamId){ state.currentExamId = state.exams[0]?.id || null; }
@@ -152,6 +162,7 @@ function normalize(){
         cutoff:{currentUrl:"", pastUrls:[]},
         selection:{ required:null, total:null },
         responseUrl:"",
+        questionPapers:{ currentUrl:"", pastUrls:[] },
         subjects: state.subjects
       }],
       currentExamId: examId,
@@ -161,7 +172,7 @@ function normalize(){
   }
   // Empty
   const id = uid();
-  state = { exams:[{ id, name:"Untitled Exam", syllabusUrl:"", notifications:{currentUrl:"",pastUrls:[]}, cutoff:{currentUrl:"",pastUrls:[]}, selection:{required:null,total:null}, responseUrl:"", subjects:[] }], currentExamId:id, ui:{tab:"subjects"} };
+  state = { exams:[{ id, name:"Untitled Exam", syllabusUrl:"", notifications:{currentUrl:"",pastUrls:[]}, cutoff:{currentUrl:"",pastUrls:[]}, selection:{required:null,total:null}, responseUrl:"", questionPapers:{currentUrl:"",pastUrls:[]}, subjects:[] }], currentExamId:id, ui:{tab:"subjects"} };
 }
 function currentExam(){ return state.exams.find(e=>e.id===state.currentExamId) || state.exams[0]; }
 
@@ -181,14 +192,14 @@ function examStats(exam){
 }
 
 /* ---------- exam CRUD ---------- */
-function addExam(name){ const id=uid(); state.exams.push({ id, name:name||"New Exam", syllabusUrl:"", notifications:{currentUrl:"", pastUrls:[]}, cutoff:{currentUrl:"", pastUrls:[]}, selection:{required:null,total:null}, responseUrl:"", subjects:[] }); state.currentExamId=id; }
+function addExam(name){ const id=uid(); state.exams.push({ id, name:name||"New Exam", syllabusUrl:"", notifications:{currentUrl:"", pastUrls:[]}, cutoff:{currentUrl:"", pastUrls:[]}, selection:{ required:null, total:null }, responseUrl:"", questionPapers:{currentUrl:"", pastUrls:[]}, subjects:[] }); state.currentExamId=id; }
 function renameExam(id,newName){ const ex=state.exams.find(e=>e.id===id); if(!ex) return; ex.name=newName||"Untitled Exam"; }
 function removeExam(id){
   const i=state.exams.findIndex(e=>e.id===id); if(i<0) return;
   state.exams.splice(i,1);
   if(state.exams.length===0){
     const idNew=uid();
-    state.exams.push({ id:idNew, name:"Untitled Exam", syllabusUrl:"", notifications:{currentUrl:"",pastUrls:[]}, cutoff:{currentUrl:"",pastUrls:[]}, selection:{required:null,total:null}, responseUrl:"", subjects:[] });
+    state.exams.push({ id:idNew, name:"Untitled Exam", syllabusUrl:"", notifications:{currentUrl:"",pastUrls:[]}, cutoff:{currentUrl:"",pastUrls:[]}, selection:{required:null,total:null}, responseUrl:"", questionPapers:{currentUrl:"",pastUrls:[]}, subjects:[] });
     state.currentExamId=idNew;
   }else if(state.currentExamId===id){ state.currentExamId=state.exams[0].id; }
 }
@@ -270,6 +281,21 @@ function clearSelection(){ const ex=currentExam(); if(!ex) return; ex.selection 
 // Response sheet
 function setResponseUrl(url){ const ex=currentExam(); if(!ex) return; ex.responseUrl = url || ""; }
 
+/* ---------- NEW: Question Papers helpers ---------- */
+function setCurrentQP(url){ const ex=currentExam(); if(!ex) return; if(!ex.questionPapers) ex.questionPapers={currentUrl:"",pastUrls:[]}; ex.questionPapers.currentUrl = url || ""; }
+function addPastQP(url){ const ex=currentExam(); if(!ex) return; if(!ex.questionPapers) ex.questionPapers={currentUrl:"",pastUrls:[]}; if(url) ex.questionPapers.pastUrls.unshift(url); }
+function removePastQP(idx){ const ex=currentExam(); if(!ex) return; ex.questionPapers.pastUrls.splice(idx,1); }
+function archiveCurrentQPToPast(){ const ex=currentExam(); if(!ex) return; const cur=ex.questionPapers.currentUrl?.trim(); if(cur){ ex.questionPapers.pastUrls.unshift(cur); ex.questionPapers.currentUrl=""; } }
+function makePastQPCurrent(idx){
+  const ex=currentExam(); if(!ex) return;
+  const arr=ex.questionPapers.pastUrls; const url=arr[idx]; if(!url) return;
+  const cur=ex.questionPapers.currentUrl?.trim();
+  if(cur) arr.unshift(cur);
+  const j = arr.indexOf(url);
+  if(j>-1) arr.splice(j,1);
+  ex.questionPapers.currentUrl = url;
+}
+
 /* ---------- rendering ---------- */
 function renderExamHeader(){
   const ex=currentExam(), st=examStats(ex);
@@ -296,6 +322,8 @@ function renderExamHeader(){
         <button id="tabCutoff"    class="${state.ui.tab==='cutoff'?'active':''}"        role="tab" aria-selected="${state.ui.tab==='cutoff'}">Final Cutoff PDF</button>
         <button id="tabSelection" class="${state.ui.tab==='selection'?'active':''}"     role="tab" aria-selected="${state.ui.tab==='selection'}">Selection Marks</button>
         <button id="tabResponse"  class="${state.ui.tab==='response'?'active':''}"      role="tab" aria-selected="${state.ui.tab==='response'}">Response Sheet PDF</button>
+        <!-- NEW TAB -->
+        <button id="tabQP"        class="${state.ui.tab==='qp'?'active':''}"            role="tab" aria-selected="${state.ui.tab==='qp'}">Question Papers</button>
       </div>
 
       <div class="row" style="margin-top:8px">
@@ -318,6 +346,7 @@ function renderExamHeader(){
   $("#tabCutoff").onclick    = ()=> dirty(()=> state.ui.tab="cutoff");
   $("#tabSelection").onclick = ()=> dirty(()=> state.ui.tab="selection");
   $("#tabResponse").onclick  = ()=> dirty(()=> state.ui.tab="response");
+  $("#tabQP").onclick        = ()=> dirty(()=> state.ui.tab="qp"); // NEW
   $("#exportBtn2").onclick = onExport;
   $("#importInp2").onchange = onImport;
 }
@@ -435,7 +464,8 @@ function renderSyllabus(){
       </div>
       ${url ? `<div class="pdfWrap"><iframe src="${embed}" allow="autoplay"></iframe></div>`
             : `<div class="small" style="margin-top:8px">Tip: Set Drive file to “Anyone with the link – Viewer”.</div>`}
-    </div>`;
+    </div>
+  `;
   $("#saveSyllabusBtn").onclick = ()=> { const val=$("#syllabusInp").value.trim(); dirty(()=> setSyllabusUrl(val||"")); };
   const open=$("#openSyllabus"); if(open) open.href=url;
   const clear=$("#clearSyllabusBtn"); if(clear) clear.onclick=()=> dirty(()=> setSyllabusUrl(""));
@@ -621,7 +651,7 @@ function renderSelection(){
   if(clear) clear.onclick = ()=> dirty(()=> clearSelection());
 }
 
-/* --- NEW: Response Sheet PDF tab --- */
+/* --- Response Sheet PDF tab --- */
 function renderResponse(){
   const ex=currentExam();
   const url = ex.responseUrl || "";
@@ -644,6 +674,73 @@ function renderResponse(){
   const clear=$("#clearRespBtn"); if(clear) clear.onclick = ()=> dirty(()=> setResponseUrl(""));
 }
 
+/* --- NEW: Question Papers tab --- */
+function renderQP(){
+  const ex=currentExam();
+  const qp = ex.questionPapers || { currentUrl:"", pastUrls:[] };
+  const cur = qp.currentUrl || "";
+  const embed = cur ? makePdfEmbed(cur) : "";
+  mount.innerHTML = `
+    <div class="card">
+      <h2>📝 Question Papers</h2>
+      <details open>
+        <summary><strong>Current Question Paper</strong></summary>
+        <div class="row" style="margin-top:8px">
+          <input id="qpCurInp" style="min-width:280px;flex:1" placeholder="Paste Google Drive share link (or any PDF URL)" value="${escapeHtml(cur)}"/>
+          <button id="saveCurQPBtn">Save</button>
+          ${cur ? `<a class="btn" id="openCurQP" target="_blank" rel="noopener">Open</a>
+                   <button id="archiveCurQPBtn">Archive → Past</button>
+                   <button class="danger" id="clearCurQPBtn">Clear</button>` : ""}
+        </div>
+        ${cur ? `<div class="pdfWrap"><iframe src="${embed}" allow="autoplay"></iframe></div>`
+              : `<div class="small" style="margin-top:8px">Tip: Ensure the link is viewable by “Anyone with the link”.</div>`}
+      </details>
+
+      <details style="margin-top:10px" open>
+        <summary><strong>Past Question Papers</strong></summary>
+        <div class="row" style="margin-top:8px">
+          <input id="qpPastInp" style="min-width:280px;flex:1" placeholder="Paste a past question paper PDF link"/>
+          <button id="addPastQPBtn">Add to Past</button>
+        </div>
+        <div class="pastList" id="qpPastList"></div>
+      </details>
+    </div>
+  `;
+  $("#saveCurQPBtn").onclick = ()=> { const v=$("#qpCurInp").value.trim(); dirty(()=> setCurrentQP(v||"")); };
+  const open=$("#openCurQP"); if(open) open.href = cur;
+  const clear=$("#clearCurQPBtn"); if(clear) clear.onclick = ()=> dirty(()=> setCurrentQP(""));
+  const arch=$("#archiveCurQPBtn"); if(arch) arch.onclick = ()=> dirty(()=> archiveCurrentQPToPast());
+  $("#addPastQPBtn").onclick = ()=> { const v=$("#qpPastInp").value.trim(); if(!v) return; dirty(()=> addPastQP(v)); };
+
+  const list = $("#qpPastList");
+  if(qp.pastUrls.length===0){
+    list.innerHTML = `<div class="small">No past question papers yet.</div>`;
+  }else{
+    list.innerHTML = qp.pastUrls.map((url,idx)=>{
+      const emb = makePdfEmbed(url);
+      return `
+        <div class="pastItem">
+          <div class="pastHead">
+            <div class="row" style="gap:8px">
+              <span class="small">#${idx+1}</span>
+              <a class="link" href="${url}" target="_blank" rel="noopener">${escapeHtml(url)}</a>
+            </div>
+            <div class="row">
+              <button onclick="dirty(()=> makePastQPCurrent(${idx}))">Make Current</button>
+              <a class="btn" href="${url}" target="_blank" rel="noopener">Open</a>
+              <button class="danger" onclick="dirty(()=> removePastQP(${idx}))">Delete</button>
+            </div>
+          </div>
+          <details>
+            <summary>Preview</summary>
+            <div class="pdfWrap" style="margin-top:8px"><iframe src="${emb}" allow="autoplay"></iframe></div>
+          </details>
+        </div>
+      `;
+    }).join("");
+  }
+}
+
 function render(){
   normalize();
   renderExamHeader();
@@ -653,6 +750,7 @@ function render(){
   else if(state.ui.tab==="cutoff") renderCutoff();
   else if(state.ui.tab==="selection") renderSelection();
   else if(state.ui.tab==="response") renderResponse();
+  else if(state.ui.tab==="qp") renderQP();              /* NEW route */
   else renderSubjects();
 }
 
@@ -716,7 +814,7 @@ $("#demoBtn").onclick = ()=>{
 
 /* ---------- demo ---------- */
 function demoData(){
-  const e1={ id:uid(), name:"RRB JE 2025", syllabusUrl:"", notifications:{ currentUrl:"", pastUrls:[] }, cutoff:{ currentUrl:"", pastUrls:[] }, selection:{ required:180, total:300 }, responseUrl:"", subjects:[
+  const e1={ id:uid(), name:"RRB JE 2025", syllabusUrl:"", notifications:{ currentUrl:"", pastUrls:[] }, cutoff:{ currentUrl:"", pastUrls:[] }, selection:{ required:180, total:300 }, responseUrl:"", questionPapers:{ currentUrl:"", pastUrls:[] }, subjects:[
     { id:uid(), name:"History", collapsed:false, topics:[
       { id:uid(), name:"President of India", chunks:2, completed:[true,false] },
       { id:uid(), name:"PM of India", chunks:3, completed:[false,false,false] },
@@ -724,12 +822,12 @@ function demoData(){
     ]},
     { id:uid(), name:"Physics", collapsed:true, topics:[] }
   ]};
-  const e2={ id:uid(), name:"SSC JE 2025", syllabusUrl:"", notifications:{ currentUrl:"", pastUrls:[] }, cutoff:{ currentUrl:"", pastUrls:[] }, selection:{ required:null, total:null }, responseUrl:"", subjects:[
+  const e2={ id:uid(), name:"SSC JE 2025", syllabusUrl:"", notifications:{ currentUrl:"", pastUrls:[] }, cutoff:{ currentUrl:"", pastUrls:[] }, selection:{ required:null, total:null }, responseUrl:"", questionPapers:{ currentUrl:"", pastUrls:[] }, subjects:[
     { id:uid(), name:"Strength of Materials", collapsed:false, topics:[
       { id:uid(), name:"Bending Stresses", chunks:6, completed:[true,true,true,false,false,false] }
     ]}
   ]};
-  return { exams:[e1,e2], currentExamId:e1.id, ui:{tab:"response"} };
+  return { exams:[e1,e2], currentExamId:e1.id, ui:{tab:"qp"} };
 }
 
 /* ---------- boot ---------- */
